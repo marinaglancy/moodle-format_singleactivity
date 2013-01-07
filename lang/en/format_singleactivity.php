@@ -22,12 +22,13 @@
  * @license    http://www.gnu.org/copyleft/gpl.html GNU GPL v3 or later
  */
 
-$string['pluginname'] = 'Single activity format';
 $string['activitytype'] = 'Type of activity';
 $string['activitytype_help'] = 'Choose the type of activity or resource to use in this course';
+$string['defactivitytype'] = 'Default type of activity';
+$string['defactivitytypedesc'] = 'Specify the activity type that will be selected by default when creating a new course';
 $string['erroractivitytype'] = 'Type of activity is not set up in Course settings';
 $string['errornotsetup'] = 'This course is not set up yet';
 $string['orphaned'] = 'Orphaned';
 $string['orphanedwarning'] = 'These activities are unreachable by users!';
-$string['defactivitytype'] = 'Default type of activity';
-$string['defactivitytypedesc'] = 'Specify the activity type that will be selected by default when creating a new course';
+$string['pluginname'] = 'Single activity format';
+$string['sectionname'] = '';
