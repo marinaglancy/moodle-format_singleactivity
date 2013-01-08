@@ -68,7 +68,9 @@ class format_singleactivity extends format_base {
         global $OUTPUT;
         $activity = $this->get_activity();
         if ($activity) {
-            $this->navigation_add_activity($node, $activity);
+            $activitynode = $this->navigation_add_activity($node, $activity);
+            $node->action = $activitynode->action;
+            $activitynode->display = false;
         }
         // Singleactivity course format does not extend course navigation
         if (has_capability('moodle/course:update', context_course::instance($this->courseid))) {
@@ -196,7 +198,7 @@ class format_singleactivity extends format_base {
             }
         }
         if ($activity && $activity->sectionnum != 0) {
-            moveto_module($activity, $seciton0);
+            moveto_module($activity, $section0);
         }
         foreach ($modinfo->cms as $id => $cm) {
             if ((!$activity || $id != $activity->id) && $cm->sectionnum != 1) {
@@ -246,6 +248,7 @@ class format_singleactivity extends format_base {
      */
     public function page_set_course(moodle_page $page) {
         global $PAGE;
+        $page->add_body_class('format-'. $this->get_format());
         if ($PAGE == $page && $page->has_set_url() &&
                 $page->url->compare(new moodle_url('/course/view.php'), URL_MATCH_BASE)) {
             $this->reorder_activities();
@@ -278,6 +281,40 @@ class format_singleactivity extends format_base {
             } else {
                 redirect($cm->get_url());
             }
+        }
+    }
+
+    /**
+     * Allows course format to execute code on moodle_page::set_cm()
+     *
+     * If we are inside the main module for this course, remove extra node level
+     * from navigation: substitute course node with activity node, move all children
+     *
+     * @param moodle_page $page instance of page calling set_cm
+     */
+    public function page_set_cm(moodle_page $page) {
+        global $PAGE;
+        parent::page_set_cm($page);
+        if ($PAGE == $page && ($cm = $this->get_activity()) &&
+                ($cm->id === $page->cm->id) &&
+                ($activitynode = $page->navigation->find($cm->id, navigation_node::TYPE_ACTIVITY)) &&
+                ($node = $page->navigation->find($page->course->id, navigation_node::TYPE_COURSE))) {
+            // substitute course node with activity node, move all children
+            $node->action = $activitynode->action;
+            $node->type = $activitynode->type;
+            $node->id = $activitynode->id;
+            $node->key = $activitynode->key;
+            $node->isactive = $node->isactive || $activitynode->isactive;
+            $node->icon = null;
+            if ($activitynode->children->count()) {
+                foreach ($activitynode->children as &$child) {
+                    $child->remove();
+                    $node->add_node($child);
+                }
+            } else {
+                $node->search_for_active_node();
+            }
+            $activitynode->remove();
         }
     }
 }
