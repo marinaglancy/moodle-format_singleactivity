@@ -5,6 +5,11 @@ Type of activity is specified in course settings.
 Single activity course format has it's own settings where manager can specify
 the default activity type for the new courses.
 
+Version 1.3
+-----------
+
+* Bug fix with CSS modifying of form for all course formats instead of just this
+
 Version 1.2
 -----------
 
