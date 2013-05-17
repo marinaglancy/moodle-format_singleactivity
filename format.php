@@ -7,5 +7,6 @@
 
 if ($section == 1) {
     echo $OUTPUT->box(get_string('orphanedwarning', 'format_singleactivity'));
-    print_section($course, course_get_format($course)->get_section(1), null, null, true, "100%", false, 1);
+    $courserenderer = $PAGE->get_renderer('core', 'course');
+    echo $courserenderer->course_section_cm_list($course, course_get_format($course)->get_section(1), 1);
 }
