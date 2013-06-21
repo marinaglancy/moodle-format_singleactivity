@@ -1,9 +1,16 @@
-Course format 'Single activity' allows to create a format that consists of only one
+Course format 'Single activity' allows to create a course that consists of only one
 activity. Course view page is automatically redirected to this activity.
 Type of activity is specified in course settings.
 
 Single activity course format has it's own settings where manager can specify
 the default activity type for the new courses.
+
+Version 2.5.4
+-------------
+
+* Correct handling of users capabilities and error messages when activity is not
+  set up or hidden
+* Fixed bug when teacher was not being able to switch editing mode on/off
 
 Version 1.3
 -----------
