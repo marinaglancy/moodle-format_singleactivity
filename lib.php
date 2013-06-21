@@ -67,13 +67,13 @@ class format_singleactivity extends format_base {
     public function extend_course_navigation($navigation, navigation_node $node) {
         global $OUTPUT;
         $activity = $this->get_activity();
-        if ($activity) {
+        if ($activity && $activity->uservisible) {
             $activitynode = $this->navigation_add_activity($node, $activity);
             $node->action = $activitynode->action;
             $activitynode->display = false;
         }
         // Singleactivity course format does not extend course navigation
-        if (has_capability('moodle/course:update', context_course::instance($this->courseid))) {
+        if (has_capability('moodle/course:manageactivities', context_course::instance($this->courseid))) {
             $modinfo = get_fast_modinfo($this->courseid);
             if (!empty($modinfo->sections[1])) {
                 $section1 = $modinfo->get_section_info(1);
@@ -240,8 +240,8 @@ class format_singleactivity extends format_base {
     /**
      * Allows course format to execute code on moodle_page::set_course()
      *
-     * If user is on course view page and there is no scorm module added to the course
-     * and the user has 'moodle/course:update' capability, redirect to create module
+     * If user is on course view page and there is no module added to the course
+     * and the user has 'moodle/course:manageactivities' capability, redirect to create module
      * form. This function is executed before the output starts
      *
      * @param moodle_page $page instance of page calling set_course
@@ -251,9 +251,14 @@ class format_singleactivity extends format_base {
         $page->add_body_class('format-'. $this->get_format());
         if ($PAGE == $page && $page->has_set_url() &&
                 $page->url->compare(new moodle_url('/course/view.php'), URL_MATCH_BASE)) {
+            $edit = optional_param('edit', -1, PARAM_BOOL);
+            if (($edit == 0 || $edit == 1) && confirm_sesskey()) {
+                // This is a request to turn editing mode on or off, do not redirect here, let /course/view.php process request, it will redirect itself
+                return;
+            }
             $this->reorder_activities();
             $cursection = optional_param('section', null, PARAM_INT);
-            if (has_capability('moodle/course:update', context_course::instance($this->courseid)) && $cursection == 1) {
+            if ($cursection == 1 && has_capability('moodle/course:manageactivities', context_course::instance($this->courseid))) {
                 // display orphaned activities
                 return;
             }
@@ -261,23 +266,26 @@ class format_singleactivity extends format_base {
                 if (has_capability('moodle/course:update', context_course::instance($this->courseid))) {
                     // teacher is redirected to edit course page
                     $url = new moodle_url('/course/edit.php', array('id' => $this->courseid));
-                    print_error('erroractivitytype', 'format_singleactivity', $url);
+                    redirect($url, get_string('erroractivitytype', 'format_singleactivity'));
                 } else {
                     // student just receives an error
-                    print_error('errornotsetup', 'format_singleactivity');
+                    redirect(new moodle_url('/'), get_string('errornotsetup', 'format_singleactivity'));
                 }
             }
             $cm = $this->get_activity();
             if ($cm === null) {
-                if (has_capability('moodle/course:update', context_course::instance($this->courseid))) {
+                if (has_capability('moodle/course:manageactivities', context_course::instance($this->courseid))) {
                     // teacher is redirected to create a new activity
                     $url = new moodle_url('/course/modedit.php',
                             array('course' => $this->courseid, 'section' => 0, 'add' => $this->get_activitytype()));
                     redirect($url);
                 } else {
                     // student just receives an error
-                    print_error('errornotsetup', 'format_singleactivity');
+                    redirect(new moodle_url('/'), get_string('errornotsetup', 'format_singleactivity'));
                 }
+            } else if (!$cm->uservisible) {
+                // activity is set but not visible to current user, print error
+                redirect(new moodle_url('/'), get_string('activityiscurrentlyhidden'));
             } else {
                 redirect($cm->get_url());
             }
@@ -296,6 +304,7 @@ class format_singleactivity extends format_base {
         global $PAGE;
         parent::page_set_cm($page);
         if ($PAGE == $page && ($cm = $this->get_activity()) &&
+                $cm->uservisible &&
                 ($cm->id === $page->cm->id) &&
                 ($activitynode = $page->navigation->find($cm->id, navigation_node::TYPE_ACTIVITY)) &&
                 ($node = $page->navigation->find($page->course->id, navigation_node::TYPE_COURSE))) {

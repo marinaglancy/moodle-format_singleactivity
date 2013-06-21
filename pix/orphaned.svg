@@ -3,7 +3,7 @@
 "http://www.w3.org/TR/2001/REC-SVG-20010904/DTD/svg10.dtd">
 <svg version="1.0" width="600" height="500"
   xmlns="http://www.w3.org/2000/svg"
-  xmlns:xlink="http://www.w3.org/1999/xlink">
+  xmlns:xlink="http://www.w3.org/1999/xlink" preserveAspectRatio="xMinYMid meet">
  <defs>
   <linearGradient id="linearGradient1612"
     x1="41.1948738" y1="616.477173"
