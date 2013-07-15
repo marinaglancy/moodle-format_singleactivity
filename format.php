@@ -28,5 +28,4 @@
  */
 
 $courserenderer = $PAGE->get_renderer('format_singleactivity');
-echo $courserenderer->display($course,
-        $section && has_capability('moodle/course:manageactivities', $context));
+echo $courserenderer->display($course, $section != 0);
