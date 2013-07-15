@@ -15,7 +15,7 @@
 // along with Moodle.  If not, see <http://www.gnu.org/licenses/>.
 
 /**
- * This file contains main class for the course format SCORM
+ * This file contains main class for the course format singleactivity
  *
  * @package    format_singleactivity
  * @copyright  2012 Marina Glancy
@@ -33,6 +33,8 @@ require_once($CFG->dirroot. '/course/format/lib.php');
  * @license    http://www.gnu.org/copyleft/gpl.html GNU GPL v3 or later
  */
 class format_singleactivity extends format_base {
+    /** @var cm_info the current activity. Use get_activity() to retrieve it. */
+    private $activity = false;
 
     /**
      * The URL to use for the specified course
@@ -49,7 +51,7 @@ class format_singleactivity extends format_base {
         if (is_object($sectionnum)) {
             $sectionnum = $section->section;
         }
-        if ($sectionnum == 1 && !empty(get_fast_modinfo($this->courseid)->sections[1])) {
+        if ($sectionnum == 1) {
             return new moodle_url('/course/view.php', array('id' => $this->courseid, 'section' => 1));
         }
         if (!empty($options['navigation']) && $section !== null) {
@@ -65,26 +67,18 @@ class format_singleactivity extends format_base {
      * @param navigation_node $node The course node within the navigation
      */
     public function extend_course_navigation($navigation, navigation_node $node) {
-        global $OUTPUT;
-        $activity = $this->get_activity();
-        if ($activity && $activity->uservisible) {
-            $activitynode = $this->navigation_add_activity($node, $activity);
-            $node->action = $activitynode->action;
-            $activitynode->display = false;
-        }
-        // Singleactivity course format does not extend course navigation
+        // Display orphaned activities for the users who can manage them.
         if (has_capability('moodle/course:manageactivities', context_course::instance($this->courseid))) {
             $modinfo = get_fast_modinfo($this->courseid);
             if (!empty($modinfo->sections[1])) {
                 $section1 = $modinfo->get_section_info(1);
-                // show orphaned activities
-                $icon = new pix_icon('orphaned', '', 'format_singleactivity');
+                // Show orphaned activities.
                 $orphanednode = $node->add(get_string('orphaned', 'format_singleactivity'),
-                        $this->get_view_url(1), navigation_node::TYPE_SECTION, null, $section1->id, $icon);
+                        $this->get_view_url(1), navigation_node::TYPE_SECTION, null, $section1->id);
                 $orphanednode->nodetype = navigation_node::NODETYPE_BRANCH;
-                $orphanednode->add_class('error');
+                $orphanednode->add_class('orphaned');
                 foreach ($modinfo->sections[1] as $cmid) {
-                    $this->navigation_add_activity($orphanednode, $modinfo->cms[$cmid], $icon);
+                    $this->navigation_add_activity($orphanednode, $modinfo->cms[$cmid]);
                 }
             }
         }
@@ -93,23 +87,27 @@ class format_singleactivity extends format_base {
     /**
      * Adds a course module to the navigation node
      *
+     * This is basically copied from function global_navigation::load_section_activities()
+     * because it is not accessible from outside.
+     *
      * @param navigation_node $node
      * @param cm_info $cm
-     * @param pix_icon $icon if specified overwrites module icon
      * @return null|navigation_node
      */
-    protected function navigation_add_activity(navigation_node $node, $cm, $icon = null) {
-        if (!$cm->uservisible || $cm->modname === 'label') {
+    protected function navigation_add_activity(navigation_node $node, $cm) {
+        if (!$cm->uservisible) {
+            return null;
+        }
+        $action = $cm->get_url();
+        if (!$action) {
+            // Do not add to navigation activity without url (i.e. labels).
             return null;
         }
         $activityname = format_string($cm->name, true, array('context' => context_module::instance($cm->id)));
-        $action = $cm->get_url();
-        if (!$icon) {
-            if ($cm->icon) {
-                $icon = new pix_icon($cm->icon, $cm->modfullname, $cm->iconcomponent);
-            } else {
-                $icon = new pix_icon('icon', $cm->modfullname, $cm->modname);
-            }
+        if ($cm->icon) {
+            $icon = new pix_icon($cm->icon, $cm->modfullname, $cm->iconcomponent);
+        } else {
+            $icon = new pix_icon('icon', $cm->modfullname, $cm->modname);
         }
         $activitynode = $node->add($activityname, $action, navigation_node::TYPE_ACTIVITY, null, $cm->id, $icon);
         if (global_navigation::module_extends_navigation($cm->modname)) {
@@ -127,6 +125,7 @@ class format_singleactivity extends format_base {
      *     each of values is an array of block names (for left and right side columns)
      */
     public function get_default_blocks() {
+        // No blocks for this format because course view page is not displayed anyway.
         return array(
             BLOCK_POS_LEFT => array(),
             BLOCK_POS_RIGHT => array()
@@ -169,22 +168,51 @@ class format_singleactivity extends format_base {
     }
 
     /**
+     * Adds format options elements to the course/section edit form
+     *
+     * This function is called from {@link course_edit_form::definition_after_data()}
+     *
+     * Format singleactivity adds a warning when format of the course is about to be changed.
+     *
+     * @param MoodleQuickForm $mform form the elements are added to
+     * @param bool $forsection 'true' if this is a section edit form, 'false' if this is course edit form
+     * @return array array of references to the added form elements
+     */
+    public function create_edit_form_elements(&$mform, $forsection = false) {
+        global $PAGE;
+        $elements = parent::create_edit_form_elements($mform, $forsection);
+        if (!$forsection && ($course = $PAGE->course) && !empty($course->format) &&
+                $course->format !== 'site' && $course->format !== 'singleactivity') {
+            // This is the existing course in other format, display a warning.
+            $element = $mform->addElement('static', '', '',
+                    html_writer::tag('span', get_string('warningchangeformat', 'format_singleactivity'),
+                            array('class' => 'error')));
+            array_unshift($elements, $element);
+        }
+        return $elements;
+    }
+
+    /**
      * Make sure that current active activity is in section 0
      *
-     * All other activities are in section 1 that will be displayed as 'Orphaned'
+     * All other activities are moved to section 1 that will be displayed as 'Orphaned'.
+     * It may be needed after the course format was changed or activitytype in
+     * course settings has been changed.
+     *
+     * @return null|cm_info current activity
      */
     public function reorder_activities() {
         course_create_sections_if_missing($this->courseid, array(0, 1));
-        $section0 = $this->get_section(0);
-        $section1 = $this->get_section(1);
-        if (!$section0->visible) {
-            set_section_visible($this->courseid, 0, true);
+        foreach ($this->get_sections() as $sectionnum => $section) {
+            if (($sectionnum && $section->visible) ||
+                    (!$sectionnum && !$section->visible)) {
+                // Make sure that 0 section is visible and all others are hidden.
+                set_section_visible($this->courseid, $sectionnum, $sectionnum == 0);
+            }
         }
-        if ($section1->visible) {
-            set_section_visible($this->courseid, 1, false);
-        }
-
         $modinfo = get_fast_modinfo($this->courseid);
+
+        // Find the current activity (first activity with the specified type in all course activities).
         $activitytype = $this->get_activitytype();
         $activity = null;
         if (!empty($activitytype)) {
@@ -197,14 +225,40 @@ class format_singleactivity extends format_base {
                 }
             }
         }
+
+        // Make sure the current activity is in the 0-section.
         if ($activity && $activity->sectionnum != 0) {
-            moveto_module($activity, $section0);
+            moveto_module($activity, $modinfo->get_section_info(0));
+            // Cache was reset so get modinfo again.
+            $modinfo = get_fast_modinfo($this->courseid);
         }
-        foreach ($modinfo->cms as $id => $cm) {
-            if ((!$activity || $id != $activity->id) && $cm->sectionnum != 1) {
-                moveto_module($cm, $section1);
+
+        // Move all other activities into section 1 (the order must be kept).
+        $hasvisibleactivities = false;
+        $firstorphanedcm = null;
+        foreach ($modinfo->sections as $sectionnum => $cmlist) {
+            if ($sectionnum && !empty($cmlist) && $firstorphanedcm === null) {
+                $firstorphanedcm = reset($cmlist);
+            }
+            foreach ($cmlist as $cmid) {
+                if ($sectionnum > 1) {
+                    moveto_module($modinfo->get_cm($cmid), $modinfo->get_section_info(1));
+                } else if (!$hasvisibleactivities && $sectionnum == 1 && $modinfo->get_cm($cmid)->visible) {
+                    $hasvisibleactivities = true;
+                }
             }
         }
+        if (!empty($modinfo->sections[0])) {
+            foreach ($modinfo->sections[0] as $cmid) {
+                if (!$activity || $cmid != $activity->id) {
+                    moveto_module($modinfo->get_cm($cmid), $modinfo->get_section_info(1), $firstorphanedcm);
+                }
+            }
+        }
+        if ($hasvisibleactivities) {
+            set_section_visible($this->courseid, 1, false);
+        }
+        return $activity;
     }
 
     /**
@@ -229,20 +283,25 @@ class format_singleactivity extends format_base {
      * @return null|cm_info
      */
     protected function get_activity() {
-        $this->reorder_activities();
-        $modinfo = get_fast_modinfo($this->courseid);
-        if (isset($modinfo->sections[0][0])) {
-            return $modinfo->cms[$modinfo->sections[0][0]];
+        if ($this->activity === false) {
+            $this->activity = $this->reorder_activities();
         }
-        return null;
+        return $this->activity;
     }
 
     /**
      * Allows course format to execute code on moodle_page::set_course()
      *
+     * This function is executed before the output starts.
+     *
+     * If everything is configured correctly, user is redirected from the
+     * default course view page to the activity view page.
+     *
+     * "Section 1" is the administrative page to manage orphaned activities
+     *
      * If user is on course view page and there is no module added to the course
      * and the user has 'moodle/course:manageactivities' capability, redirect to create module
-     * form. This function is executed before the output starts
+     * form.
      *
      * @param moodle_page $page instance of page calling set_course
      */
@@ -253,40 +312,42 @@ class format_singleactivity extends format_base {
                 $page->url->compare(new moodle_url('/course/view.php'), URL_MATCH_BASE)) {
             $edit = optional_param('edit', -1, PARAM_BOOL);
             if (($edit == 0 || $edit == 1) && confirm_sesskey()) {
-                // This is a request to turn editing mode on or off, do not redirect here, let /course/view.php process request, it will redirect itself
+                // This is a request to turn editing mode on or off, do not redirect here, /course/view.php will do redirection.
                 return;
             }
-            $this->reorder_activities();
+            $cm = $this->get_activity();
             $cursection = optional_param('section', null, PARAM_INT);
-            if ($cursection == 1 && has_capability('moodle/course:manageactivities', context_course::instance($this->courseid))) {
-                // display orphaned activities
+            if (!empty($cursection) && has_capability('moodle/course:manageactivities',
+                    context_course::instance($this->courseid))) {
+                // Display orphaned activities (course view page, section 1).
                 return;
             }
             if (!$this->get_activitytype()) {
                 if (has_capability('moodle/course:update', context_course::instance($this->courseid))) {
-                    // teacher is redirected to edit course page
+                    // Teacher is redirected to edit course page.
                     $url = new moodle_url('/course/edit.php', array('id' => $this->courseid));
                     redirect($url, get_string('erroractivitytype', 'format_singleactivity'));
                 } else {
-                    // student just receives an error
-                    redirect(new moodle_url('/'), get_string('errornotsetup', 'format_singleactivity'));
+                    // Student sees an empty course page.
+                    return;
                 }
             }
-            $cm = $this->get_activity();
             if ($cm === null) {
                 if (has_capability('moodle/course:manageactivities', context_course::instance($this->courseid))) {
-                    // teacher is redirected to create a new activity
+                    // Teacher is redirected to create a new activity.
                     $url = new moodle_url('/course/modedit.php',
                             array('course' => $this->courseid, 'section' => 0, 'add' => $this->get_activitytype()));
                     redirect($url);
                 } else {
-                    // student just receives an error
-                    redirect(new moodle_url('/'), get_string('errornotsetup', 'format_singleactivity'));
+                    // Student views an empty course page.
+                    return;
                 }
-            } else if (!$cm->uservisible) {
-                // activity is set but not visible to current user, print error
-                redirect(new moodle_url('/'), get_string('activityiscurrentlyhidden'));
+            } else if (!$cm->uservisible || !$cm->get_url()) {
+                // Activity is set but not visible to current user or does not have url.
+                // Display course page (either empty or with availability restriction info).
+                return;
             } else {
+                // Everything is set up and accessible, redirect to the activity page!
                 redirect($cm->get_url());
             }
         }
@@ -308,7 +369,7 @@ class format_singleactivity extends format_base {
                 ($cm->id === $page->cm->id) &&
                 ($activitynode = $page->navigation->find($cm->id, navigation_node::TYPE_ACTIVITY)) &&
                 ($node = $page->navigation->find($page->course->id, navigation_node::TYPE_COURSE))) {
-            // substitute course node with activity node, move all children
+            // Substitute course node with activity node, move all children.
             $node->action = $activitynode->action;
             $node->type = $activitynode->type;
             $node->id = $activitynode->id;
